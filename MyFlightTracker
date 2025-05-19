@@ -1,0 +1,88 @@
+// Backend API Route: pages/api/search.ts
+
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') return res.status(405).end();
+
+  const { from, to, date } = req.body;
+
+  const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+
+  const url = `https://skyscanner44.p.rapidapi.com/search?adults=1&origin=${from}&destination=${to}&departureDate=${date}&currency=INR`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'X-RapidAPI-Key': RAPIDAPI_KEY || '',
+      'X-RapidAPI-Host': 'skyscanner44.p.rapidapi.com'
+    }
+  });
+
+  const data = await response.json();
+
+  if (data.itineraries) {
+    const results = data.itineraries.slice(0, 5).map((itinerary: any) => {
+      const leg = data.legs.find((leg: any) => leg.id === itinerary.legs[0]);
+      return {
+        cityFrom: leg.origin.displayCode,
+        cityTo: leg.destination.displayCode,
+        price: itinerary.pricingOptions[0].price.amount,
+        dTime: new Date(leg.departure).getTime() / 1000,
+        airlines: leg.carriers.marketing.map((carrier: any) => carrier.name)
+      };
+    });
+    res.status(200).json(results);
+  } else {
+    res.status(500).json({ error: 'Failed to fetch flights' });
+  }
+}
+
+
+// Frontend: React (Next.js)
+// Pages/index.tsx
+
+import { useState } from 'react';
+
+export default function Home() {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [date, setDate] = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const searchFlights = async () => {
+    setLoading(true);
+    const res = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to, date }),
+    });
+    const data = await res.json();
+    setResults(data);
+    setLoading(false);
+  };
+
+  return (
+    <main className="p-6 max-w-xl mx-auto text-center">
+      <h1 className="text-3xl font-bold mb-4">Flight Price Tracker</h1>
+      <input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="From (e.g., DEL)" className="border p-2 m-1" />
+      <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="To (e.g., BOM)" className="border p-2 m-1" />
+      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="border p-2 m-1" />
+      <button onClick={searchFlights} className="bg-blue-600 text-white px-4 py-2 rounded m-2">Search</button>
+
+      {loading && <p>Loading...</p>}
+
+      <ul>
+        {results.map((flight, idx) => (
+          <li key={idx} className="border p-4 my-2 text-left">
+            <p><strong>{flight.cityFrom}</strong> → <strong>{flight.cityTo}</strong></p>
+            <p>Price: ₹{flight.price}</p>
+            <p>Departure: {new Date(flight.dTime * 1000).toLocaleString()}</p>
+            <p>Airline: {flight.airlines.join(', ')}</p>
+          </li>
+        ))}
+      </ul>
+    </main>
+  );
+}
